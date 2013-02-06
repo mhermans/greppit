@@ -2,7 +2,15 @@ import datetime
 from py2neo import neo4j
 
 from praw.objects import Subreddit, Comment, Submission, Redditor, RedditContentObject
-from praw import Reddit
+import praw
+
+def utc_now_timestamp():
+    return (datetime.datedatetime.utcnow() - datetime.datedatetime(1970, 1, 1)).total_seconds()
+
+# [ ] store type/fullname (fullname() is a praw object function)
+# [ ] store updated timestamp utc->timestamp code
+# [ ] accessable initialiser for gdb uri
+# [ ] solution for restoring praw objects based on stored data?
 
 
 # Monkeypatching praw objects
@@ -14,6 +22,7 @@ from praw import Reddit
 
 # alternative atm:
 RedditContentObject.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
+
 
 # SUBREDDIT #
 # ========= #
@@ -82,8 +91,18 @@ def _save_submission(self, full=True, update=False):
             )
     return subm_node
 
+def _get_all_comments(self):
+
+    try:
+        return self.all_comments
+    except AttributeError:
+        self.replace_more_comments()
+        self.all_comments = praw.helpers.flatten_tree(self.comments)
+        return self.all_comments
+
 Submission.data = _get_submission_data
 Submission.save = _save_submission
+Submission.all_flat_comments = _get_all_comments
 
 # USER #
 # ==== #
@@ -110,9 +129,60 @@ def _save_user(self):
 Redditor.data = _get_user_data
 Redditor.save = _save_user
 
+# COMMENT #
+# ======= #
+
+def _get_comment_data(self):
+
+    if not self._populated:
+        self._populate(json_dict=None, fetch=True)
+    props = ['body', 'body_html', 'created', 'created_uct', 'downs', 'edited', 'gilded','id',
+            'link_id', 'name', 'parent_id', 'subreddit_id', 'ups']
+    data = self.__dict__.copy()
+    comment_data = {key : value for key, value in data.items() if key in props}
+
+    #del data['reddit_session'], data['author'], data['_submission']
+    #del data['_replies'], data['subreddit']
+
+    # TODO suffiencient plain text info on submission?
+    # TODO store nesting structure for comments?
+    # TODO what with deleted comments?
+
+    if self.author:
+        comment_data['author_name'] = self.author.name
+
+    return comment_data
+
+def _save_comment(self, full=True, update=False):
+    props = self.data()
+    #props['updated'] = datetime.datetime.now()
+    comment_node = self.gdb.get_or_create_indexed_node('Comments', 'id', props['id'], props)
+
+    if full:
+        # get full submission object and save that with rel
+        props = {'created' : 'now' } #TODO
+        subm_node = self.submission.save()
+        self.gdb.get_or_create_relationships(
+            (subm_node, "CONTAINS", comment_node, props)
+        )
+
+        # get full author object, and save that with rel
+        if self.author:
+            props = {'created' : 'now' } #TODO
+            author_node = self.author.save()
+            self.gdb.get_or_create_relationships(
+                (comment_node, "AUTHOR", author_node, props)
+            )
+    return comment_node
+
+Comment.data = _get_comment_data
+Comment.save = _save_comment
+
+
 if __name__ == '__main__':
-    r = Reddit('rest')
-    s = r.get_submission('http://www.reddit.com/r/programming/comments/17j839/curiosity_the_gnu_foundation_does_not_consider/')
+    r = praw.Reddit('rest')
+    #s = r.get_submission('http://www.reddit.com/r/programming/comments/17j839/curiosity_the_gnu_foundation_does_not_consider/')
+    s = r.get_submission('http://www.reddit.com/r/belgium/comments/17y0gy/mobile_vikings_to_give_free_mobile_data/')
     u = s.author
     c = s.comments[0]
     sr = s.subreddit
