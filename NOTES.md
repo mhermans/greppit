@@ -25,3 +25,5 @@ START submission=node:Submissions("id:*") MATCH subreddit-[:CONTAINS]->submissio
 START comment=node:Comments("id:*") MATCH subreddit-[:CONTAINS]->submission-[:CONTAINS]->comment RETURN subreddit.label, count(comment.id);
 
 START n=node(*) WHERE has(n.url), n.url = '/r/belgium' RETURN n;
+
+gdb.clear() keeps the indexes, and "relationship types"

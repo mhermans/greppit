@@ -1,5 +1,5 @@
 import datetime, logging
-from py2neo import neo4j
+from py2neo import neo4j, rest
 
 from praw.objects import Subreddit, Comment, Submission, Redditor, RedditContentObject
 import praw
@@ -13,11 +13,12 @@ log.addHandler(ch)
 def utc_now_timestamp():
     return (datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1)).total_seconds()
 
-# [ ] make sure indexes are existing get_or_create_index()
-# [ ] store type/fullname (fullname() is a praw object function)
+# [X] make sure indexes are existing get_or_create_index()
 # [X] store updated timestamp utc->timestamp code
 # [X] accessable initialiser for gdb uri
 # [X] store labels for every object
+# [X] initialize reddit root node
+# [ ] store type/fullname (fullname() is a praw object function)
 # [ ] solution for restoring praw objects based on stored data?
 
 
@@ -31,7 +32,28 @@ class RedditGraph(praw.Reddit):
         super(praw.Reddit, self).__init__(user_agent,
                 site_name=None, disable_update_check=False)
 
+        # link to Neo4j REST API
         self.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
+
+        # get or initialize indexes
+        self.subreddits = self.gdb.get_or_create_index(neo4j.Node, 'Subreddits')
+        self.submissions = self.gdb.get_or_create_index(neo4j.Node, 'Submissions')
+        self.comments = self.gdb.get_or_create_index(neo4j.Node, 'Comments')
+        self.users = self.gdb.get_or_create_index(neo4j.Node, 'Users')
+        self.structure = self.gdb.get_or_create_index(neo4j.Node, 'Structure')
+
+        # TODO initialize root/Reddit node
+        props = {'label':'Reddit', 'type':'rootnode','updated':utc_now_timestamp()}
+
+        # select empty 0-node if existing:
+        try:
+            self.reddit_node = self.gdb.get_node(0) # root node
+            if not self.reddit_node.get_properties():
+                self.reddit_node.set_properties(props)
+            self.structure.add('root', 'reddit', self.reddit_node)
+        except rest.ResourceNotFound: # ref node got deleted?
+            self.reddit_node = self.gdb.get_or_create_indexed_node(
+                    'Structure', 'root', 'reddit', props)
 
 # SUBREDDIT #
 # ========= #
@@ -57,9 +79,8 @@ def _save_subreddit(self):
     log.info('Saving node for subreddit %s' % props['label'])
     sr_node = self.reddit_session.gdb.get_or_create_indexed_node('Subreddits', 'id', props['id'], props)
 
-    reddit_node = self.reddit_session.gdb.get_node(0)
     self.reddit_session.gdb.get_or_create_relationships(
-        (reddit_node, "CONTAINS", sr_node, props)
+            (self.reddit_session.reddit_node, "CONTAINS", sr_node, {'updated' : utc_now_timestamp()})
     )
 
     return sr_node
@@ -101,10 +122,9 @@ def _save_submission(self, full=True, comments=False, update=False):
 
     if full:
         # get full subreddit object and save that with rel
-        props = {'created' : utc_now_timestamp() } #TODO
         sr_node = self.subreddit.save()
         self.reddit_session.gdb.get_or_create_relationships(
-            (sr_node, "CONTAINS", subm_node, props)
+            (sr_node, "CONTAINS", subm_node, {'updated' : utc_now_timestamp() })
         )
 
         # get full author object, and save that with rel
@@ -112,7 +132,7 @@ def _save_submission(self, full=True, comments=False, update=False):
             props = {'created' : utc_now_timestamp() } #TODO
             author_node = self.author.save()
             self.reddit_session.gdb.get_or_create_relationships(
-                (subm_node, "AUTHOR", author_node, props)
+                (subm_node, "AUTHOR", author_node, {'updated' : utc_now_timestamp() })
             )
 
     if comments:
