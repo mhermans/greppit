@@ -3,8 +3,6 @@ from py2neo import neo4j
 
 from praw.objects import Subreddit, Comment, Submission, Redditor, RedditContentObject
 import praw
-from praw import BaseReddit
-
 
 log = logging.getLogger('reddit crawler')
 log.setLevel(logging.DEBUG)
@@ -17,22 +15,23 @@ def utc_now_timestamp():
 
 # [ ] make sure indexes are existing get_or_create_index()
 # [ ] store type/fullname (fullname() is a praw object function)
-# [ ] store updated timestamp utc->timestamp code
-# [ ] accessable initialiser for gdb uri
-# [ ] store labels for every object
+# [X] store updated timestamp utc->timestamp code
+# [X] accessable initialiser for gdb uri
+# [X] store labels for every object
 # [ ] solution for restoring praw objects based on stored data?
 
 
 # Monkeypatching praw objects
 
-# subclass Reddit object to take graph uri on init?
-#class BaseReddit(BaseReddit):
-#    def __init__(self, neo4j_uri):
-#        super(Reddit, self).__init__
+# subclass Reddit object to take graph uri on init
+class RedditGraph(praw.Reddit):
+    def __init__(self, user_agent, graph_uri="http://localhost:7474/db/data",
+            site_name=None, disable_update_check=False):
 
-# alternative atm:
-RedditContentObject.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
+        super(praw.Reddit, self).__init__(user_agent,
+                site_name=None, disable_update_check=False)
 
+        self.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
 
 # SUBREDDIT #
 # ========= #
@@ -53,13 +52,13 @@ def _get_subreddit_data(self):
 def _save_subreddit(self):
     props = self.data()
     props['updated'] = utc_now_timestamp()
-    props['label'] = props['display_name']
+    props['label'] = props['url']
     props['type'] = 'subreddit'
     log.info('Saving node for subreddit %s' % props['label'])
-    sr_node = self.gdb.get_or_create_indexed_node('Subreddits', 'id', props['id'], props)
+    sr_node = self.reddit_session.gdb.get_or_create_indexed_node('Subreddits', 'id', props['id'], props)
 
-    reddit_node = self.gdb.get_node(0)
-    self.gdb.get_or_create_relationships(
+    reddit_node = self.reddit_session.gdb.get_node(0)
+    self.reddit_session.gdb.get_or_create_relationships(
         (reddit_node, "CONTAINS", sr_node, props)
     )
 
@@ -82,31 +81,6 @@ def _get_submission_data(self):
 
     return submission_data
 
-def _save_submission(self, full=True, update=False):
-    props = self.data()
-    props['updated'] = utc_now_timestamp() 
-    props['label'] = props['title'][0:15]
-    props['type'] = 'submission'
-    log.info('Saving node for submission "%s..."' % props['label'])
-    subm_node = self.gdb.get_or_create_indexed_node('Submissions', 'id', props['id'], props)
-
-    if full:
-        # get full subreddit object and save that with rel
-        props = {'created' : utc_now_timestamp() } #TODO
-        sr_node = self.subreddit.save()
-        self.gdb.get_or_create_relationships(
-            (sr_node, "CONTAINS", subm_node, props)
-        )
-
-        # get full author object, and save that with rel
-        if self.author:
-            props = {'created' : utc_now_timestamp() } #TODO
-            author_node = self.author.save()
-            self.gdb.get_or_create_relationships(
-                (subm_node, "AUTHOR", author_node, props)
-            )
-    return subm_node
-
 def _get_all_comments(self):
 
     try:
@@ -115,6 +89,37 @@ def _get_all_comments(self):
         self.replace_more_comments()
         self.all_comments = praw.helpers.flatten_tree(self.comments)
         return self.all_comments
+
+def _save_submission(self, full=True, comments=False, update=False):
+    props = self.data()
+    props['updated'] = utc_now_timestamp() 
+    props['label'] = '[S] ' + props['title'][0:15]
+    props['type'] = 'submission'
+    log.info('Saving node for submission "%s..."' % props['label'])
+    subm_node = self.reddit_session.gdb.get_or_create_indexed_node(
+            'Submissions', 'id', props['id'], props)
+
+    if full:
+        # get full subreddit object and save that with rel
+        props = {'created' : utc_now_timestamp() } #TODO
+        sr_node = self.subreddit.save()
+        self.reddit_session.gdb.get_or_create_relationships(
+            (sr_node, "CONTAINS", subm_node, props)
+        )
+
+        # get full author object, and save that with rel
+        if self.author:
+            props = {'created' : utc_now_timestamp() } #TODO
+            author_node = self.author.save()
+            self.reddit_session.gdb.get_or_create_relationships(
+                (subm_node, "AUTHOR", author_node, props)
+            )
+
+    if comments:
+        [c.save() for c in self.all_flat_comments()]
+
+    return subm_node
+
 
 Submission.data = _get_submission_data
 Submission.save = _save_submission
@@ -136,12 +141,12 @@ def _get_user_data(self):
 
 def _save_user(self):
     props = self.data()
-    props['label'] = props['name']
+    props['label'] = '/u/' + props['name']
     props['updated'] = utc_now_timestamp()
     props['type'] = 'user'
 
     log.info('Saving node for user %s' % props['label'])
-    n = self.gdb.get_or_create_indexed_node('Users', 'id', props['id'], props)
+    n = self.reddit_session.gdb.get_or_create_indexed_node('Users', 'id', props['id'], props)
 
     return n
 
@@ -174,17 +179,17 @@ def _get_comment_data(self):
 
 def _save_comment(self, full=True, update=False):
     props = self.data()
-    props['label'] = props['body'][0:15]
+    props['label'] = '[C] ' + props['body'][0:15]
     props['updated'] = utc_now_timestamp()
     props['type'] = 'comment'
     log.info('Saving node for comment "%s..."' % props['label'])
-    comment_node = self.gdb.get_or_create_indexed_node('Comments', 'id', props['id'], props)
+    comment_node = self.reddit_session.gdb.get_or_create_indexed_node('Comments', 'id', props['id'], props)
 
     if full:
         # get full submission object and save that with rel
         props = {'created' : utc_now_timestamp() } #TODO
         subm_node = self.submission.save()
-        self.gdb.get_or_create_relationships(
+        self.reddit_session.gdb.get_or_create_relationships(
             (subm_node, "CONTAINS", comment_node, props)
         )
 
@@ -192,7 +197,7 @@ def _save_comment(self, full=True, update=False):
         if self.author:
             props = {'created' : utc_now_timestamp() } #TODO
             author_node = self.author.save()
-            self.gdb.get_or_create_relationships(
+            self.reddit_session.gdb.get_or_create_relationships(
                 (comment_node, "AUTHOR", author_node, props)
             )
     return comment_node

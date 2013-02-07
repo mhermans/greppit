@@ -1,7 +1,6 @@
 import datetime
-import py2neo, pandas
 from mpatch import Subreddit, Submission, Comment, Redditor, log
-import praw
+import py2neo, praw
 
 class RedditCrawler(object):
     def __init__(self, reddit_user_name=None, reddit_password=None,
