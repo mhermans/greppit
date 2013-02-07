@@ -1,6 +1,6 @@
-import datetime
-from mpatch import Subreddit, Submission, Comment, Redditor, log
-import py2neo, praw
+import datetime, py2neo
+from neo4reddit import RedditGraph as Reddit
+from neo4reddit import log
 
 class RedditCrawler(object):
     def __init__(self, reddit_user_name=None, reddit_password=None,
@@ -8,7 +8,7 @@ class RedditCrawler(object):
         """docstring for __init__"""
 
         self.gdb = py2neo.neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
-        self.reddit_api = praw.Reddit(
+        self.reddit_api = Reddit(
                 user_agent='neo4reddit crawler || misbehaving?:/u/mhermans')
 
     def crawl_subreddit(self, name, limit=100, full=True, resume=True):
@@ -24,7 +24,3 @@ class RedditCrawler(object):
 
         q = 'START n=node(*) MATCH n-[r?]-() where ID(n) <> 0 DELETE n, r;'
         py2neo.cypher.execute(self.gdb, q)
-
-rc = RedditCrawler()
-rc.crawl_subreddit('Belgium', 1000)
-rc.crawl_subreddit('Finland', 1000)
