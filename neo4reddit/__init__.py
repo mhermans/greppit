@@ -45,8 +45,10 @@ class RedditGraph(praw.Reddit):
         # TODO initialize root/Reddit node
         props = {'label':'Reddit', 'type':'rootnode','updated':utc_now_timestamp()}
 
-        # select empty 0-node if existing:
-        try:
+        self.gdb.get_or_create_indexed_node('Structure', 'root', 'reddit', props)
+
+        """
+        try: # select empty 0-node if existing:
             self.reddit_node = self.gdb.get_node(0) # root node
             if not self.reddit_node.get_properties():
                 self.reddit_node.set_properties(props)
@@ -54,6 +56,7 @@ class RedditGraph(praw.Reddit):
         except rest.ResourceNotFound: # ref node got deleted?
             self.reddit_node = self.gdb.get_or_create_indexed_node(
                     'Structure', 'root', 'reddit', props)
+        """
 
 # SUBREDDIT #
 # ========= #
@@ -76,11 +79,19 @@ def _save_subreddit(self):
     props['updated'] = utc_now_timestamp()
     props['label'] = props['url']
     props['type'] = 'subreddit'
+
+
+    reddit_node = self.reddit_session.structure.get('root', 'reddit')[0]
+    log.info("got root node %s" % reddit_node)
+
     log.info('Saving node for subreddit %s' % props['label'])
+
     sr_node = self.reddit_session.gdb.get_or_create_indexed_node('Subreddits', 'id', props['id'], props)
+    log.info('subreddit node %s' % sr_node)
+
 
     self.reddit_session.gdb.get_or_create_relationships(
-            (self.reddit_session.reddit_node, "CONTAINS", sr_node, {'updated' : utc_now_timestamp()})
+            (reddit_node, "CONTAINS", sr_node, {'updated' : utc_now_timestamp()})
     )
 
     return sr_node
