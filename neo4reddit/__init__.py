@@ -42,57 +42,51 @@ class RedditGraph(praw.Reddit):
         self.users = self.gdb.get_or_create_index(neo4j.Node, 'Users')
         self.structure = self.gdb.get_or_create_index(neo4j.Node, 'Structure')
 
-        # TODO initialize root/Reddit node
-        props = {'label':'Reddit', 'type':'rootnode','updated':utc_now_timestamp()}
+        self.has_subreddit = self.gdb.get_or_create_index(neo4j.Relationship, 'HasSubreddit')
 
-        self.gdb.get_or_create_indexed_node('Structure', 'root', 'reddit', props)
 
-        """
-        try: # select empty 0-node if existing:
-            self.reddit_node = self.gdb.get_node(0) # root node
-            if not self.reddit_node.get_properties():
-                self.reddit_node.set_properties(props)
-            self.structure.add('root', 'reddit', self.reddit_node)
-        except rest.ResourceNotFound: # ref node got deleted?
-            self.reddit_node = self.gdb.get_or_create_indexed_node(
-                    'Structure', 'root', 'reddit', props)
-        """
 
 # SUBREDDIT #
 # ========= #
 
 def _get_subreddit_data(self):
+
+    # if data is not already fetched, do so
+    if not self._populated:
+        # TODO this is always fetched?
+        log.info('Not populated, insert JSON for subreddit')
+        self._populate(json_dict=None, fetch=True)
+
+    # filter properties
     props = ['accounts_active', 'created', 'created_utc', 'description',
             'display_name', 'id', 'name', 'over18', 'subscribers',
             'title', 'url']
 
-    if not self._populated:
-        self._populate(json_dict=None, fetch=True)
     data = self.__dict__
-
     subreddit_data = {key : value for key, value in data.items() if key in props }
 
     return subreddit_data
 
 def _save_subreddit(self):
-    props = self.data()
-    props['updated'] = utc_now_timestamp()
-    props['label'] = props['url']
-    props['type'] = 'subreddit'
 
+    # get/create reddit root node
+    reddit_props = {'label':'Reddit', 'type':'rootnode', 'id':'reddit'}
+    reddit_node = self.reddit_session.structure.get_or_create('root', 'reddit', reddit_props)
 
-    reddit_node = self.reddit_session.structure.get('root', 'reddit')[0]
-    log.info("got root node %s" % reddit_node)
+    # set subreddit node properties
+    sr_props = self.data() # overwritten function!
+    sr_props.update({'updated' : utc_now_timestamp(),
+            'label' : sr_props['url'], 'type' : 'subreddit'})
 
-    log.info('Saving node for subreddit %s' % props['label'])
+    # create subreddit node if it does not exist
+    log.info('Get or create node for subreddit %s' % sr_props['label'])
+    sr_node = self.reddit_session.subreddits.get_or_create('id', sr_props['id'], sr_props)
 
-    sr_node = self.reddit_session.gdb.get_or_create_indexed_node('Subreddits', 'id', props['id'], props)
-    log.info('subreddit node %s' % sr_node)
-
-
-    self.reddit_session.gdb.get_or_create_relationships(
-            (reddit_node, "CONTAINS", sr_node, {'updated' : utc_now_timestamp()})
-    )
+    # add relationship if it does not exist
+    self.reddit_session.has_subreddit.create_if_none(
+            'id', '-'.join([reddit_node['id'], sr_node['id']]),
+                (reddit_node, 'CONTAINS', sr_node,
+                {'updated' : utc_now_timestamp()}))
 
     return sr_node
 
