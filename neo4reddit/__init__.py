@@ -58,12 +58,12 @@ def _get_subreddit_data(self):
         self._populate(json_dict=None, fetch=True)
 
     # filter properties
-    props = ['accounts_active', 'created', 'created_utc', 'description',
+    sr_props = ['accounts_active', 'created', 'created_utc', 'description',
             'display_name', 'id', 'name', 'over18', 'subscribers',
             'title', 'url']
 
     data = self.__dict__
-    subreddit_data = {key : value for key, value in data.items() if key in props }
+    subreddit_data = {key : value for key, value in data.items() if key in sr_props }
 
     return subreddit_data
 
@@ -85,7 +85,7 @@ def _save_subreddit(self):
     # add relationship if it does not exist
     self.reddit_session.has_subreddit.create_if_none(
             'id', '-'.join([reddit_node['id'], sr_node['id']]),
-                (reddit_node, 'CONTAINS', sr_node,
+                (reddit_node, 'has_subreddit', sr_node,
                 {'updated' : utc_now_timestamp()}))
 
     return sr_node
@@ -97,19 +97,23 @@ Subreddit.save = _save_subreddit
 # ========== #
 
 def _get_submission_data(self):
-    props = ['created', 'created_utc', 'id', 'domain',
+
+    # TODO always populated?
+
+    # filter properties
+    sm_props = ['created', 'created_utc', 'id', 'domain',
         'downs', 'is_self', 'name', 'num_comments', 'permalink',
         'score', 'selftext', 'subreddit_id', 'ups', 'url', 'permalink', 'title']
     data = self.__dict__
-    submission_data = {key : value for key, value in data.items() if key in props }
-    if self.author:
-        submission_data['author_name'] = self.author.name
+    submission_data = {key : value for key, value in data.items() if key in sm_props }
+
+    if self.author: submission_data['author_name'] = self.author.name
 
     return submission_data
 
 def _get_all_comments(self):
 
-    try:
+    try: # check if comments have been parsed already
         return self.all_comments
     except AttributeError:
         self.replace_more_comments()
@@ -117,24 +121,27 @@ def _get_all_comments(self):
         return self.all_comments
 
 def _save_submission(self, full=True, comments=False, update=False):
-    props = self.data()
-    props['updated'] = utc_now_timestamp() 
-    props['label'] = '[S] ' + props['title'][0:15]
-    props['type'] = 'submission'
-    log.info('Saving node for submission "%s..."' % props['label'])
+
+    # TODO always populated?
+
+    sm_props = self.data()
+    lbl = '[S] ' + ''.join(sm_props['title'][0:15].split())
+    sm_props.update({'updated' : utc_now_timestamp(),
+        'label' : lbl, 'type' : 'submission'})
+
+    log.info('Saving node for submission "%s..."' % sm_props['label'])
     subm_node = self.reddit_session.gdb.get_or_create_indexed_node(
-            'Submissions', 'id', props['id'], props)
+            'Submissions', 'id', sm_props['id'], sm_props)
 
     if full:
         # get full subreddit object and save that with rel
         sr_node = self.subreddit.save()
         self.reddit_session.gdb.get_or_create_relationships(
-            (sr_node, "CONTAINS", subm_node, {'updated' : utc_now_timestamp() })
+            (sr_node, "has_submission", subm_node, {'updated' : utc_now_timestamp() })
         )
 
         # get full author object, and save that with rel
         if self.author:
-            props = {'created' : utc_now_timestamp() } #TODO
             author_node = self.author.save()
             self.reddit_session.gdb.get_or_create_relationships(
                 (subm_node, "AUTHOR", author_node, {'updated' : utc_now_timestamp() })
@@ -165,13 +172,13 @@ def _get_user_data(self):
     return user_data
 
 def _save_user(self):
-    props = self.data()
-    props['label'] = '/u/' + props['name']
-    props['updated'] = utc_now_timestamp()
-    props['type'] = 'user'
+    u_props = self.data()
+    u_props.update({'label' : '/u/' + u_props['name'],
+        'updated' : utc_now_timestamp(), 'type' : 'user'})
 
-    log.info('Saving node for user %s' % props['label'])
-    n = self.reddit_session.gdb.get_or_create_indexed_node('Users', 'id', props['id'], props)
+    log.info('Get/create node for user %s' % u_props['label'])
+    n = self.reddit_session.gdb.get_or_create_indexed_node(
+            'Users', 'id', u_props['id'], u_props)
 
     return n
 
@@ -185,10 +192,10 @@ def _get_comment_data(self):
 
     if not self._populated:
         self._populate(json_dict=None, fetch=True)
-    props = ['body', 'body_html', 'created', 'created_utc', 'downs', 'edited', 'gilded','id',
+    c_props = ['body', 'body_html', 'created', 'created_utc', 'downs', 'edited', 'gilded','id',
             'link_id', 'name', 'parent_id', 'subreddit_id', 'ups']
     data = self.__dict__.copy()
-    comment_data = {key : value for key, value in data.items() if key in props}
+    comment_data = {key : value for key, value in data.items() if key in c_props}
 
     #del data['reddit_session'], data['author'], data['_submission']
     #del data['_replies'], data['subreddit']
@@ -203,27 +210,27 @@ def _get_comment_data(self):
     return comment_data
 
 def _save_comment(self, full=True, update=False):
-    props = self.data()
-    props['label'] = '[C] ' + props['body'][0:15]
-    props['updated'] = utc_now_timestamp()
-    props['type'] = 'comment'
-    log.info('Saving node for comment "%s..."' % props['label'])
-    comment_node = self.reddit_session.gdb.get_or_create_indexed_node('Comments', 'id', props['id'], props)
+
+    c_props = self.data()
+    lbl = '[C] ' + ''.join(c_props['body'][0:15].split())
+    c_props.update({'label' : lbl, 'updated' : utc_now_timestamp(), 'type': 'comment'})
+
+    log.info('Get/create node for comment "%s..."' % c_props['label'])
+    comment_node = self.reddit_session.gdb.get_or_create_indexed_node(
+            'Comments', 'id', c_props['id'], c_props)
 
     if full:
         # get full submission object and save that with rel
-        props = {'created' : utc_now_timestamp() } #TODO
         subm_node = self.submission.save()
         self.reddit_session.gdb.get_or_create_relationships(
-            (subm_node, "CONTAINS", comment_node, props)
+            (subm_node, "has_comment", comment_node, {'updated' : utc_now_timestamp() })
         )
 
         # get full author object, and save that with rel
         if self.author:
-            props = {'created' : utc_now_timestamp() } #TODO
             author_node = self.author.save()
             self.reddit_session.gdb.get_or_create_relationships(
-                (comment_node, "AUTHOR", author_node, props)
+                (comment_node, "AUTHOR", author_node, {'created' : utc_now_timestamp()})
             )
     return comment_node
 
