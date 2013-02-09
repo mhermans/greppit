@@ -44,8 +44,6 @@ class RedditGraph(praw.Reddit):
 
         self.has_subreddit = self.gdb.get_or_create_index(neo4j.Relationship, 'HasSubreddit')
 
-
-
 # SUBREDDIT #
 # ========= #
 
@@ -80,7 +78,8 @@ def _save_subreddit(self):
 
     # create subreddit node if it does not exist
     log.info('Get or create node for subreddit %s' % sr_props['label'])
-    sr_node = self.reddit_session.subreddits.get_or_create('id', sr_props['id'], sr_props)
+    sr_node = self.reddit_session.subreddits.get_or_create(
+            'name', sr_props['display_name'], sr_props) # index on display_name
 
     # add relationship if it does not exist
     self.reddit_session.has_subreddit.create_if_none(
@@ -134,17 +133,26 @@ def _save_submission(self, full=True, comments=False, update=False):
             'Submissions', 'id', sm_props['id'], sm_props)
 
     if full:
-        # get full subreddit object and save that with rel
-        sr_node = self.subreddit.save()
+        # fetch sr name from dict to not trigger (remote) fetch
+        sr_name = self.subreddit.__dict__.get('display_name')
+
+        # retrieve or create subreddit node object
+        sr_node = self.reddit_session.gdb.get_indexed_node(
+                'Subreddits', 'name', sr_name)
+        if not sr_node: sr_node = self.subreddit.save()
+
         self.reddit_session.gdb.get_or_create_relationships(
             (sr_node, "has_submission", subm_node, {'updated' : utc_now_timestamp() })
         )
 
         # get full author object, and save that with rel
         if self.author:
-            author_node = self.author.save()
+            author_node = self.reddit_session.gdb.get_indexed_node(
+                    'Users', 'name', self.author.name)
+            if not author_node: author_node = self.author.save()
+
             self.reddit_session.gdb.get_or_create_relationships(
-                (subm_node, "AUTHOR", author_node, {'updated' : utc_now_timestamp() })
+                (subm_node, "has_author", author_node, {'updated' : utc_now_timestamp() })
             )
 
     if comments:
@@ -176,9 +184,11 @@ def _save_user(self):
     u_props.update({'label' : '/u/' + u_props['name'],
         'updated' : utc_now_timestamp(), 'type' : 'user'})
 
+    # Users are indexed on name (should be unique), not id
+    # as unpopulated user objects do not have an id
     log.info('Get/create node for user %s' % u_props['label'])
     n = self.reddit_session.gdb.get_or_create_indexed_node(
-            'Users', 'id', u_props['id'], u_props)
+            'Users', 'name', u_props['name'], u_props)
 
     return n
 
@@ -209,6 +219,15 @@ def _get_comment_data(self):
 
     return comment_data
 
+#def is_single(result, fn):
+    #if len(result) == 0: # no results
+        ## get full submission object and save that with rel
+        #return fn() #subm_node = self.submission.save()
+    #elif len(subm_node) > 1:
+        #raise ValueError('Multiple nodes returned for id %s on Submission-index')
+    #else:
+        #return subm_node[0]
+
 def _save_comment(self, full=True, update=False):
 
     c_props = self.data()
@@ -220,18 +239,24 @@ def _save_comment(self, full=True, update=False):
             'Comments', 'id', c_props['id'], c_props)
 
     if full:
-        # get full submission object and save that with rel
-        subm_node = self.submission.save()
+        subm_node = self.reddit_session.gdb.get_indexed_node(
+                'Submissions', 'id', self.submission.id)
+        if not subm_node: subm_node = self.submission.save()
+
         self.reddit_session.gdb.get_or_create_relationships(
             (subm_node, "has_comment", comment_node, {'updated' : utc_now_timestamp() })
         )
 
         # get full author object, and save that with rel
         if self.author:
-            author_node = self.author.save()
+            author_node = self.reddit_session.gdb.get_indexed_node(
+                    'Users', 'name', self.author.name)
+            if not author_node: author_node = self.author.save()
+
             self.reddit_session.gdb.get_or_create_relationships(
-                (comment_node, "AUTHOR", author_node, {'created' : utc_now_timestamp()})
+                (comment_node, "has_author", author_node, {'updated' : utc_now_timestamp()})
             )
+
     return comment_node
 
 Comment.data = _get_comment_data

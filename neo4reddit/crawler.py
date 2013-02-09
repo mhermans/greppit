@@ -16,8 +16,11 @@ class RedditCrawler(object):
         sr = self.reddit_api.get_subreddit(name)
         for i, sub in enumerate(sr.get_hot(limit=limit)):
             log.info('Parsing submission nr.%s' % i)
-            sub.save()
-            [c.save() for c in sub.all_flat_comments()]
+            subm_node = self.gdb.get_indexed_node('Submissions', 'id', sub.id)
+            print subm_node
+            if not subm_node:
+                sub.save()
+                [c.save() for c in sub.all_flat_comments()]
 
     def clear_db(self):
         """WARNING: clears the entire graph!"""
