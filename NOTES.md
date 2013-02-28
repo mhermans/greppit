@@ -1,3 +1,24 @@
+Storing HTML in RDF
+
+http://graphite.ecs.soton.ac.uk/xtypes/
+
+http://answers.semanticweb.com/questions/14883/html-fragments-at-literals-in-rdf
+
+http://www.w3.org/2011/rdf-wg/track/issues/63
+
+https://dvcs.w3.org/hg/rdf/raw-file/default/rdf-concepts/index.html#section-html
+
+https://groups.google.com/forum/?fromgroups=#!topic/rdflib-dev/VxM1ofypRsc
+
+https://github.com/ox-it/humfrey/pull/8
+
+* [Linked data interface to SPARQL endpoints in Python](https://github.com/ox-it/humfrey)
+
+RDF1.1 draft: IRI denoting HTML datatype
+
+http://www.w3.org/1999/02/22-rdf-syntax-ns#HTML
+
+
 start n=node:Submissions("id:*")
 match n-[r?]->m
 where r is null
@@ -27,3 +48,5 @@ START comment=node:Comments("id:*") MATCH subreddit-[:CONTAINS]->submission-[:CO
 START n=node(*) WHERE has(n.url), n.url = '/r/belgium' RETURN n;
 
 gdb.clear() keeps the indexes, and "relationship types"
+
+

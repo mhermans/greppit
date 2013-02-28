@@ -18,6 +18,7 @@ def utc_now_timestamp():
 # [X] accessable initialiser for gdb uri
 # [X] store labels for every object
 # [X] initialize reddit root node
+# [ ] consistent solution for gdb & index access.
 # [ ] store type/fullname (fullname() is a praw object function)
 # [ ] solution for restoring praw objects based on stored data?
 
@@ -207,6 +208,8 @@ def _get_comment_data(self):
     data = self.__dict__.copy()
     comment_data = {key : value for key, value in data.items() if key in c_props}
 
+    comment_data['permalink'] = self.permalink
+
     #del data['reddit_session'], data['author'], data['_submission']
     #del data['_replies'], data['subreddit']
 
@@ -218,15 +221,6 @@ def _get_comment_data(self):
         comment_data['author_name'] = self.author.name
 
     return comment_data
-
-#def is_single(result, fn):
-    #if len(result) == 0: # no results
-        ## get full submission object and save that with rel
-        #return fn() #subm_node = self.submission.save()
-    #elif len(subm_node) > 1:
-        #raise ValueError('Multiple nodes returned for id %s on Submission-index')
-    #else:
-        #return subm_node[0]
 
 def _save_comment(self, full=True, update=False):
 
