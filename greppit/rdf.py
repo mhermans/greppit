@@ -1,6 +1,8 @@
 import rdflib, datetime
 from rdflib import URIRef, Literal, RDF, RDFS
-from neo4reddit import RedditGraph, Submission, Comment
+from greppit import RedditGraph, Submission, Comment
+from lxml import html
+import HTMLParser
 
 SIOC = rdflib.Namespace('http://rdfs.org/sioc/ns#')
 SIOCT = rdflib.Namespace('http://rdfs.org/sioc/types#')
@@ -9,6 +11,7 @@ DC = rdflib.Namespace('http://purl.org/dc/elements/1.1/')
 DBP = rdflib.Namespace('http://dbpedia.org/resource/')
 XTYPES = rdflib.Namespace('http://purl.org/xtypes/')
 BIBO = rdflib.Namespace('http://purl.org/ontology/bibo/')
+RLDO = rdflib.Namespace('http://purl.org/net/rldo/')
 
 def _init_graph():
     # TODO available on Reddit objects?
@@ -20,6 +23,7 @@ def _init_graph():
     g.namespace_manager.bind('dbp', DBP)
     g.namespace_manager.bind('xtypes', XTYPES)
     g.namespace_manager.bind('bibo', BIBO)
+    g.namespace_manager.bind('rldo', RLDO)
 
     return g
 
@@ -27,37 +31,41 @@ def _get_submission_graph(self):
 
     g = _init_graph()
     d = self.data()
-    print d
 
     post_uri = URIRef(d['permalink'])
-    g.add((post_uri, RDF.type, SIOC.Post))
+
+    # if self-post:
+    if d.get('selftext'):
+        g.add((post_uri, SIOC.content, Literal(d.get('selftext'))))
+        g.add((post_uri, RDF.type, RLDO.SelfPost))
+
+    else:
+        g.add((post_uri, RDF.type, SIOC.Post))
+        g.add((post_uri, DCT.isPartOf, URIRef(d.get('domain'))))
+        g.add((URIRef(d.get('domain')), RDF.type, BIBO.Website))
+
     g.add((post_uri, SIOC.id, Literal(d.get('id'))))
     g.add((post_uri, SIOC.about, URIRef(d.get('url'))))
     g.add((post_uri, SIOC.num_replies, Literal(d.get('num_comments'))))
     g.add((post_uri, SIOC.name, Literal(d.get('title'))))
     g.add((post_uri, DC.title, Literal(d.get('title'))))
+    g.add((post_uri, SIOC.num_replies, Literal(d.get('num_comments'))))
     g.add((post_uri, DCT.created,
         Literal(datetime.datetime.fromtimestamp(d.get('created_utc')))))
 
-    # domain as Website?
-    g.add((post_uri, DCT.isPartOf, URIRef(d.get('domain'))))
-    g.add((URIRef(d.get('domain')), RDF.type, BIBO.Website))
 
 
-    g.add((post_uri, SIOC.content, d.get('selftext')))
-
-    # is_self?
     # id <-> name (includes type)
 
-    # no accepted voting properties atm.
-    # http://wiki.sioc-project.org/index.php/Ontology/RatingTermsSuggestion#sioc:num_positive_votes
-    g.add((post_uri, SIOC.num_positive_votes, Literal(d.get('ups'))))
-    g.add((post_uri, SIOC.num_negative_votes, Literal(d.get('downs'))))
-    g.add((post_uri, SIOC.score, Literal(d.get('score'))))
+    # TODO containing subreddit?
 
-    # if self-post:
-    if d.get('selftext'):
-        g.add((post_uri, SIOC.content, Literal(d.get('selftext'))))
+    # no accepted voting properties atm.
+    # http://wiki.sioc-project.org/index.php/Ontology/RatingTermsSuggestion
+    # -> use custom properties
+    g.add((post_uri, RLDO.upvotes, Literal(d.get('ups'))))
+    g.add((post_uri, RLDO.downvotes, Literal(d.get('downs'))))
+    g.add((post_uri, RLDO.votes, Literal(d.get('score'))))
+
 
     if d.get('author_name'):
         user_uri = URIRef('/'.join(['http://www.reddit.com/user', d['author_name']]))
@@ -71,7 +79,7 @@ Submission.graph = _get_submission_graph
 def _get_comment_graph(self):
     d = self.data()
     g = _init_graph()
-    print d
+
     comment_uri = URIRef(d['permalink'])
 
     g.add((comment_uri, RDF.type, SIOCT.Comment))
@@ -82,14 +90,12 @@ def _get_comment_graph(self):
     # title/name/label for comment?
     #g.add((comment_uri, SIOC.name, Literal(d.get('title'))))
 
-    # no accepted voting properties atm.
-    # http://wiki.sioc-project.org/index.php/Ontology/RatingTermsSuggestion#sioc:num_positive_votes
-    g.add((comment_uri, SIOC.num_positive_votes, Literal(d.get('ups'))))
-    g.add((comment_uri, SIOC.num_negative_votes, Literal(d.get('downs'))))
+    g.add((comment_uri, RLDO.upvotes, Literal(d.get('ups'))))
+    g.add((comment_uri, RLDO.downvotes, Literal(d.get('downs'))))
     #g.add((comment_uri, SIOC.score, Literal(d.get('score')))) # no score for comments?
 
     # TODO number of child comments
-    #g.add((comment_uri, SIOC.num_replies, Literal(d.get('num_comments'))))
+    g.add((comment_uri, SIOC.num_replies, Literal(d.get('num_replies'))))
 
     g.add((comment_uri, SIOC.content,
         Literal(d.get('body')))) # plain text version
@@ -101,16 +107,21 @@ def _get_comment_graph(self):
         g.add((user_uri, RDF.type, SIOC.UserAccount))
         g.add((comment_uri, SIOC.has_creator, user_uri))
 
-    #for link in self.links():
-    #    g.add((comment_uri, SIOC.links_to, URIRef(link)))
+    for link in self.links():
+        g.add((comment_uri, SIOC.links_to, URIRef(link)))
+
+
+    if self._replies:
+        for r in self._replies:
+            g.add((comment_uri, SIOC.has_reply, URIRef(r.data().get('permalink'))))
 
     return g
 
 def _links(self):
     # return links in comment
-    html = self.body_html
-    # get hrefs
-    # return hrefs
+    parser = HTMLParser.HTMLParser()
+    h = html.fromstring(parser.unescape(self.body_html))
+    return h.xpath('//a/@href')
 
 def _contains_rdf(self):
     # fast detection
