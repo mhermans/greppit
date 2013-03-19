@@ -107,7 +107,7 @@ def _get_comment_graph(self):
         g.add((user_uri, RDF.type, SIOC.UserAccount))
         g.add((comment_uri, SIOC.has_creator, user_uri))
 
-    for link in self.links():
+    for link in self._links():
         g.add((comment_uri, SIOC.links_to, URIRef(link)))
 
 
@@ -127,12 +127,57 @@ def _contains_rdf(self):
     # fast detection
     return ':::turtle' in self.body
 
+# TODO: parse (cached) from http://www.reddit.com/r/semanticweb/wiki/meta/prefixes
+PREFIXES = """
+@prefix air: <http://www.daml.org/2001/10/html/airport-ont#> .
+@prefix cert: <http://www.w3.org/ns/auth/cert#> .
+@prefix contact: <http://www.w3.org/2000/10/swap/pim/contact#> .
+@prefix dc: <http://purl.org/dc/elements/1.1/> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix geo: <http://www.w3.org/2003/01/geo/wgs84_pos#> .
+@prefix mvcb: <http://webns.net/mvcb/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rel: <http://purl.org/vocab/relationship/> .
+@prefix rss: <http://purl.org/rss/1.0/> .
+@prefix session: <http://redfoot.net/2005/session#> .
+@prefix sioc: <http://rdfs.org/sioc/ns#> .
+@prefix sioct: <http://rdfs.org/sioc/types#> .
+@prefix uranai: <http://kota.s12.xrea.com/vocab/uranai#> .
+@prefix wn: <http://xmlns.com/wordnet/1.6/> .
+"""
+
 def _parse_turtle_block(self):
-    pass
+    if not self._contains_rdf():
+        return None
+
+    parser = HTMLParser.HTMLParser()
+    h = html.fromstring(parser.unescape(self.body_html))
+    turtle = h.xpath('//code')[0].text
+
+    # _:post -> reddit post uri
+    # _:article -> about link
+
+    turtle = turtle.strip(':::turtle\n')
+    turtle = turtle.replace('_:post', '<' + self.permalink  + '>')
+    turtle = turtle.replace('_:article', '<' + self.submission.url + '>')
+
+    # add prefixes from wiki
+    turtle = '\n'.join([PREFIXES, turtle])
+
+    g = _init_graph()
+    g.parse(data=turtle, format='n3')
+
+    return g
 
 Comment.graph = _get_comment_graph
-Comment.contains_rdf = _contains_rdf
-Comment.links = _links
+Comment._links = _links
+Comment._contains_rdf = _contains_rdf
+Comment._parse_turtle_block = _parse_turtle_block
+
 
 #TODO generic walk function for comments
 
