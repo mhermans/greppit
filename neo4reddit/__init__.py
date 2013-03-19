@@ -27,23 +27,28 @@ def utc_now_timestamp():
 
 # subclass Reddit object to take graph uri on init
 class RedditGraph(praw.Reddit):
-    def __init__(self, user_agent, graph_uri="http://localhost:7474/db/data",
+    def __init__(self, user_agent, backend=None,
             site_name=None, disable_update_check=False):
 
         super(praw.Reddit, self).__init__(user_agent,
                 site_name=None, disable_update_check=False)
 
         # link to Neo4j REST API
-        self.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
+        if type(backend) == neo4j.GraphDatabaseService:
+            #self.gdb = neo4j.GraphDatabaseService("http://localhost:7474/db/data/")
+            self.gdb = backend
 
-        # get or initialize indexes
-        self.subreddits = self.gdb.get_or_create_index(neo4j.Node, 'Subreddits')
-        self.submissions = self.gdb.get_or_create_index(neo4j.Node, 'Submissions')
-        self.comments = self.gdb.get_or_create_index(neo4j.Node, 'Comments')
-        self.users = self.gdb.get_or_create_index(neo4j.Node, 'Users')
-        self.structure = self.gdb.get_or_create_index(neo4j.Node, 'Structure')
+            # get or initialize indexes
+            self.subreddits = self.gdb.get_or_create_index(neo4j.Node, 'Subreddits')
+            self.submissions = self.gdb.get_or_create_index(neo4j.Node, 'Submissions')
+            self.comments = self.gdb.get_or_create_index(neo4j.Node, 'Comments')
+            self.users = self.gdb.get_or_create_index(neo4j.Node, 'Users')
+            self.structure = self.gdb.get_or_create_index(neo4j.Node, 'Structure')
 
-        self.has_subreddit = self.gdb.get_or_create_index(neo4j.Relationship, 'HasSubreddit')
+            self.has_subreddit = self.gdb.get_or_create_index(neo4j.Relationship, 'HasSubreddit')
+
+        # link to RDF store
+        # TODO
 
 # SUBREDDIT #
 # ========= #
