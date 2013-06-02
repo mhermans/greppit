@@ -107,6 +107,37 @@ def _get_submission_graph(self):
 
     return g
 
+def comment2graph(main_graph, comment):
+    main_graph += comment.graph()
+
+    if comment.is_root: # link to submission if top comment
+        main_graph.add((
+            URIRef(comment.submission.permalink),
+            SIOC.has_reply, URIRef(comment.permalink)))
+
+        main_graph.add((URIRef(comment.permalink),
+            SIOC.reply_of, URIRef(comment.submission.permalink)))
+
+    for sub_comment in comment.replies:
+        main_graph += comment2graph(main_graph, sub_comment)
+
+        main_graph.add((URIRef(comment.permalink),
+            SIOC.has_reply, URIRef(sub_comment.permalink)))
+
+        main_graph.add((URIRef(sub_comment.permalink),
+            SIOC.reply_of, URIRef(comment.permalink)))
+
+    return main_graph
+
+
+def _parse_comments(self):
+    gg = Graph()
+    for comment in self.comments:
+        gg += comment2graph(gg, comment)
+
+    return gg
+
+Submission.comment_graph = _parse_comments
 Submission.graph = _get_submission_graph
 
 
