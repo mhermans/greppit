@@ -208,12 +208,16 @@ def _get_comment_data(self):
 
     if not self._populated:
         self._populate(json_dict=None, fetch=True)
+
     c_props = ['body', 'body_html', 'created', 'created_utc', 'downs', 'edited', 'gilded','id',
             'link_id', 'name', 'parent_id', 'subreddit_id', 'ups']
+
     data = self.__dict__.copy()
     comment_data = {key : value for key, value in data.items() if key in c_props}
 
     comment_data['permalink'] = self.permalink
+    if self.__dict__.get('_replies'):
+        comment_data['num_replies'] = len(self.__dict__.get('_replies'))
 
     #del data['reddit_session'], data['author'], data['_submission']
     #del data['_replies'], data['subreddit']
