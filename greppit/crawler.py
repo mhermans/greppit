@@ -1,6 +1,6 @@
 import datetime, py2neo
-from neo4reddit import RedditGraph as Reddit
-from neo4reddit import log
+from greppit import RedditGraph as Reddit
+from greppit import log
 
 class RedditCrawler(object):
     def __init__(self, reddit_user_name=None, reddit_password=None,

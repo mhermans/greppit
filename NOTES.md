@@ -1,4 +1,16 @@
+API DESIGN
+----------
+
+RedditObject.data(format='json')
+
+.save()
+
+.
+
+
+
 Storing HTML in RDF
+-------------------
 
 http://graphite.ecs.soton.ac.uk/xtypes/
 
